@@ -28,8 +28,6 @@ library VaultLib {
     uint256 public constant CR_DENOMINATOR = 2;
 
     struct Vault {
-        // the address that can update the vault
-        address operator;
         // uniswap position token id deposited into the vault as collateral
         // 2^32 is 4,294,967,296, which means the vault structure will work with up to 4 billion positions
         uint32 NftCollateralId;
@@ -38,7 +36,9 @@ library VaultLib {
         // when we need to do calculations, we always cast this number to uint256 to avoid overflow
         uint96 collateralAmount;
         // amount of wPowerPerp minted from the vault
-        uint128 shortAmount;
+        uint128 shortAmount; 
+        // the address that can update the vault
+        address operator;
     }
 
     /**
