@@ -55,32 +55,15 @@ contract Intuition is DSTest {
     }
 
     function testMintPowerPerp() public {
-        emit log_named_uint("balance 0", address(this).balance);
-        (uint256 vaultId, uint256 amount) = controller.mintPowerPerpAmount{value: 1e20}(0, 1e20, 0);
-        emit log_named_uint("balance 01", address(this).balance);
-        uint128 n1 = controller.normalizationFactor();
-        emit log_named_uint("wPowerPerpMinted", amount);
-        emit log_named_uint("n1", n1);
-        (address operator, uint32 NftCollateralId, uint96 collateralAmount, uint128 shortAmount) = controller.vaults(vaultId);
-        uint256 debtInEth = debtValueInEth(vaultId);
-        emit log_named_uint("debtInEth", debtInEth);
         
-        vm.warp(block.timestamp + 1e6);
-        controller.applyFunding();
-        uint256 l1 = maxEthWithdrawable(vaultId);
-        emit log_named_uint("withdrawable", l1);
-        emit log_named_uint("balance 1", address(this).balance);
-        controller.withdraw(vaultId, l1);
-        emit log_named_uint("balance 2",  address(this).balance);
-        controller.applyFunding();
-        uint256 l2 = maxEthWithdrawable(vaultId);
-        emit log_named_uint("withdrawable!!", l2);
-        controller.withdraw(vaultId, l2);
     }
 
     function testMaxMint() public {
-        uint256 ethAmount = 1e20;
-        uint256 maxDebt = ethAmount * 2 / 3;
+        
+    }
+
+    function maxWPowerPerpMintable(uint256 vaultId) public returns (uint256 maxShortMintable) {
+        (, , uint96 collateralAmount, uint128 shortAmount) = controller.vaults(vaultId);
         uint256 _ethQuoteCurrencyPrice = Power2Base._getScaledTwap(
             address(oracle),
             address(ethQuoteCurrencyPool),
@@ -89,63 +72,44 @@ contract Intuition is DSTest {
             TWAP_PERIOD,
             true 
         );
-        uint128 n = controller.normalizationFactor();
-        uint256 maxWPowerPerp = maxDebt.mul(1e36).div(n).div(_ethQuoteCurrencyPrice);
-        uint256 vaultId = controller.mintWPowerPerpAmount{value: ethAmount}(0, maxWPowerPerp, 0);
-        uint256 limit = maxEthWithdrawable(vaultId);
-        emit log_named_uint("withdrawable eth", limit - 10);
-        controller.withdraw(vaultId, limit);
+        maxShortMintable = maxWPowerPerMintable(
+            collateralAmount,
+            _ethQuoteCurrencyPrice,
+            3,
+            2
+        ).sub(shortAmount);
+    }
 
-        // uint256 max_mint = uint256(n).mul(_ethQuoteCurrencyPrice).div(1e36).div(maxDebt);
-        // emit log_named_uint("max", max_mint);
-        // (uint256 vaultId, uint256 amount) = controller.mintWPowerPerpAmount{value: ethAmount}(0, max_mint, 0);
-        // uint256 limit = maxEthWithdrawable(vaultId);
-        // emit log_named_uint("withdrawable", limit);
+    function maxWPowerPerMintable(
+        uint256 ethAmount, 
+        uint256 ethQuoteCurrencyPrice, 
+        uint256 cr_numerator, 
+        uint256 cr_denominator
+    ) public returns (uint256) {
+        uint256 maxDebtInETH = ethAmount * cr_denominator / cr_numerator;
+        uint256 normalization = controller.getExpectedNormalizationFactor();
+        return maxDebtInETH
+            .mul(1e36)
+            .div(normalization)
+            .div(ethQuoteCurrencyPrice);
+    } 
 
-        // uint256 _debtValueInETH = uint256(n).mul(_ethQuoteCurrencyPrice);
-            
-        // uint256 max_mint = _debtValueInETH.mul(1e18).mul(maxDebt).div(1e18);
-        // emit log_named_uint("n", n); 
-        // emit log_named_uint("_ethQuoteCurrencyPrice", _ethQuoteCurrencyPrice); 
-        // emit log_named_uint("max", max_mint); 
-        // uint256 vaultId = controller.mintWPowerPerpAmount{value: ethAmount}(0, max_mint + 10, 0);
-        // controller.applyFunding();
-        // uint256 limit = maxEthWithdrawable(vaultId);
-        // emit log_named_uint("withdrawable", limit);
-
-        // 1 debt in eth 
+    function maxEthWithdrawable(
+        uint256 vaultId, 
+        uint256 cr_numerator, 
+        uint256 cr_denominator
+    ) public returns (uint256) {
+        (, , uint96 collateralAmount, uint128 shortAmount) = controller.vaults(vaultId);
+        uint256 debtInEth = debtValueInEth(uint256(shortAmount));
         
-        //     // .div(1e18);
-        // emit log_named_uint("other", _debtValueInETH);
-
-        // _debtValueInETH = uint256(_ethQuoteCurrencyPrice)
-        //     .div(n);
-        // emit log_named_uint("other1", _debtValueInETH);
-
-        // _debtValueInETH = uint256(_ethQuoteCurrencyPrice)
-        //     .div(n);
-        // emit log_named_uint("other2", _debtValueInETH.div(1e18));
-
-        // 1 eth in debt 
-        // but isn't that just the live quote for it? 
-        // no I think I want the contract definition ? 
+        return uint256(collateralAmount)
+            .sub(debtInEth
+                .mul(cr_numerator)
+                .div(cr_denominator)
+            );
     }
 
-    // need to compute a different normalization factor? Or can just take current 
-
-    function maxWPowerPerpMintable(uint256 vaultId) public returns (uint256) {
-    }
-
-    function maxEthWithdrawable(uint256 vaultId) public returns (uint256) {
-        uint256 debtInEth = debtValueInEth(vaultId);
-        // ensure slightly more than 150% 
-        // of debt is left as collateral
-        (, , uint96 collateralAmount, ) = controller.vaults(vaultId);
-        return uint256(collateralAmount).sub(debtInEth.mul(3).div(2)).sub(1);
-    }
-
-    function debtValueInEth(uint256 vaultId) public returns (uint256 _debtValueInETH){
-        (, , , uint128 _shortAmount) = controller.vaults(vaultId);
+    function debtValueInEth(uint256 debt) public returns (uint256 _debtValueInETH){
         uint128 _normalizationFactor = controller.normalizationFactor();
         uint256 _ethQuoteCurrencyPrice = Power2Base._getScaledTwap(
             address(oracle),
@@ -156,7 +120,7 @@ contract Intuition is DSTest {
             true 
         );
 
-        _debtValueInETH = uint256(_shortAmount)
+        _debtValueInETH = uint256(debt)
             .mul(_normalizationFactor)
             .mul(_ethQuoteCurrencyPrice)
             .div(1e36);
