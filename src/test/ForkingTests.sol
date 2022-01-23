@@ -59,7 +59,7 @@ contract Intuition is DSTest {
     }
 
     function testMaxMint() public {
-        
+       
     }
 
     function maxWPowerPerpMintable(uint256 vaultId) public returns (uint256 maxShortMintable) {
@@ -106,7 +106,7 @@ contract Intuition is DSTest {
             .sub(debtInEth
                 .mul(cr_numerator)
                 .div(cr_denominator)
-            );
+            ).sub(1); // assume less than cr
     }
 
     function debtValueInEth(uint256 debt) public returns (uint256 _debtValueInETH){
