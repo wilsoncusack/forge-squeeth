@@ -5,7 +5,6 @@ import {DSTest} from 'ds-test/test.sol';
 import {NonfungiblePositionManager} from 'v3-periphery/NonfungiblePositionManager.sol';
 import {UniswapV3Pool} from 'v3-core/contracts/UniswapV3Pool.sol';
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {Vm} from "forge-std/Vm.sol";
 import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 
 
@@ -16,10 +15,15 @@ import {WPowerPerp} from 'src/core/WPowerPerp.sol';
 import {IWETH9} from 'src/interfaces/IWETH9.sol';
 import {Power2Base} from 'src/libs/Power2Base.sol';
 import {VaultLib} from 'src/libs/VaultLib.sol';
+import {Uint256Casting} from "../libs/Uint256Casting.sol";
+import {ABDKMath64x64} from "../libs/ABDKMath64x64.sol";
+import {Vm} from "src/test/Vm.sol";
 
 
 contract Intuition is DSTest {
     using SafeMath for uint256;
+    using Uint256Casting for uint256;
+    using ABDKMath64x64 for int128;
 
     Vm vm = Vm(HEVM_ADDRESS);
     Oracle oracle = Oracle(0x65D66c76447ccB45dAf1e8044e918fA786A483A1);
@@ -33,6 +37,11 @@ contract Intuition is DSTest {
     uint24 feeTier = 3000;
     uint32 public constant TWAP_PERIOD = 420 seconds;
     Controller controller = Controller(0x64187ae08781B09368e6253F9E94951243A493D5);
+
+    uint256 constant LOWER_MARK_RATIO = 8e17;
+    uint256 constant UPPER_MARK_RATIO = 140e16;
+    uint256 constant ONE = 1e18;
+    uint256 public constant FUNDING_PERIOD = 420 hours;
 
     function setUp() public {
         vm.deal(address(this), 1e30);
@@ -54,12 +63,75 @@ contract Intuition is DSTest {
         // );
     }
 
-    function testMintPowerPerp() public {
-        
+    function testCompareSqthRates() public {
+        uint256 v = debtValueInEth(1e18);
+        emit log_named_uint("(controller) 1 oSQTH -> ETH", v);
+        uint256 v2 = Power2Base._getDebtValueInEth(1e18, address(oracle), 0x82c427AdFDf2d245Ec51D8046b41c4ee87F0d29C, address(wPowerPerp), address(weth));
+        emit log_named_uint("(Uniswap) 1 oSQTH -> ETH", v2);
+        emit log_named_uint("uniswap - controller", v2 - v);
     }
 
-    function testMaxMint() public {
-        
+    // function testPlaygroundNormalization() public {
+    //     uint32 period = block.timestamp.sub(controller.lastFundingUpdateTimestamp()).toUint32();
+    //     emit log_named_uint('period', period);
+    //     // if (period == 0) {
+    //     //     return normalizationFactor;
+    //     // }
+
+    //     // make sure we use the same period for mark and index
+    //     uint32 periodForOracle = _getConsistentPeriodForOracle(period);
+
+    //     // avoid reading normalizationFactor from storage multiple times
+    //     uint256 cacheNormFactor = controller.normalizationFactor();
+
+    //     uint256 mark = Power2Base._getDenormalizedMark(
+    //         periodForOracle,
+    //         address(oracle),
+    //         address(wPowerPerpPool),
+    //         address(ethQuoteCurrencyPool),
+    //         address(weth),
+    //         address(quoteCurrency),
+    //         address(wPowerPerp),
+    //         cacheNormFactor
+    //     );
+    //     uint256 index = Power2Base._getIndex(
+    //         periodForOracle,
+    //         address(oracle),
+    //         address(ethQuoteCurrencyPool), 
+    //         address(weth), 
+    //         address(quoteCurrency)
+    //         );
+
+    //     //the fraction of the funding period. used to compound the funding rate
+    //     int128 rFunding = ABDKMath64x64.divu(period, FUNDING_PERIOD);
+
+    //     // floor mark to be at least LOWER_MARK_RATIO of index
+    //     uint256 lowerBound = index.mul(LOWER_MARK_RATIO).div(ONE);
+    //     if (mark < lowerBound) {
+    //         mark = lowerBound;
+    //     } else {
+    //         // cap mark to be at most UPPER_MARK_RATIO of index
+    //         uint256 upperBound = index.mul(UPPER_MARK_RATIO).div(ONE);
+    //         if (mark > upperBound) mark = upperBound;
+    //     }
+
+    //     // normFactor(new) = multiplier * normFactor(old)
+    //     // multiplier = (index/mark)^rFunding
+    //     // x^r = n^(log_n(x) * r)
+    //     // multiplier = 2^( log2(index/mark) * rFunding )
+
+    //     int128 base = ABDKMath64x64.divu(index, mark);
+    //     int128 logTerm = ABDKMath64x64.log_2(base).mul(rFunding);
+    //     int128 multiplier = logTerm.exp_2();
+    //     uint256 result = multiplier.mulu(cacheNormFactor);
+    // }
+
+    function _getConsistentPeriodForOracle(uint32 _period) internal view returns (uint32) {
+        uint32 maxPeriodPool1 = oracle.getMaxPeriod(address(ethQuoteCurrencyPool));
+        uint32 maxPeriodPool2 = oracle.getMaxPeriod(address(wPowerPerpPool));
+
+        uint32 maxSafePeriod = maxPeriodPool1 > maxPeriodPool2 ? maxPeriodPool2 : maxPeriodPool1;
+        return _period > maxSafePeriod ? maxSafePeriod : _period;
     }
 
     function maxWPowerPerpMintable(uint256 vaultId) public returns (uint256 maxShortMintable) {
@@ -110,7 +182,7 @@ contract Intuition is DSTest {
     }
 
     function debtValueInEth(uint256 debt) public returns (uint256 _debtValueInETH){
-        uint128 _normalizationFactor = controller.getExpectedNormalizationFactor();
+        uint256 _normalizationFactor = controller.getExpectedNormalizationFactor();
         uint256 _ethQuoteCurrencyPrice = Power2Base._getScaledTwap(
             address(oracle),
             address(ethQuoteCurrencyPool),
