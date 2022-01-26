@@ -66,7 +66,8 @@ contract Intuition is DSTest {
     function testCompareSqthRates() public {
         uint256 v = debtValueInEth(1e18);
         emit log_named_uint("(controller) 1 oSQTH -> ETH", v);
-        uint256 v2 = Power2Base._getDebtValueInEth(1e18, address(oracle), 0x82c427AdFDf2d245Ec51D8046b41c4ee87F0d29C, address(wPowerPerp), address(weth));
+        address weth_squeeth_pool = 0x82c427AdFDf2d245Ec51D8046b41c4ee87F0d29C;
+        uint256 v2 = Power2Base._getDebtValueInEth(1e18, address(oracle), weth_squeeth_pool, address(wPowerPerp), address(weth));
         emit log_named_uint("(Uniswap) 1 oSQTH -> ETH", v2);
         emit log_named_uint("uniswap - controller", v2 - v);
     }
